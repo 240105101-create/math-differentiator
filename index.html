@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quadratic Equations: AI Differentiator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Source+Serif+4:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f3f6fb; --grid:#d9e2f0; --ink:#14213d; --muted:#51607d;
+  --card:#ffffff; --line:#b9c6dc; --accent:#1f4fd8; --accent-ink:#ffffff;
+  --good:#0f7b4a; --bad:#b3261e;
+  --head:"Bricolage Grotesque",system-ui,sans-serif;
+  --body:"Source Serif 4",Georgia,serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0f1626; --grid:#1c2740; --ink:#e8edf8; --muted:#9aa8c7;
+    --card:#17203a; --line:#33436b; --accent:#7da2ff; --accent-ink:#0f1626;
+    --good:#5fd69b; --bad:#ff8a80;
+  }
+}
+*{box-sizing:border-box}
+html{height:100%}
+body{
+  margin:0; min-height:100%; color:var(--ink); font:18px/1.6 var(--body);
+  background-color:var(--paper);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:28px 28px;
+}
+main{max-width:760px; margin:0 auto; padding:32px 18px 64px}
+h1{font:700 clamp(1.8rem,5vw,2.6rem)/1.1 var(--head); margin:0 0 6px; letter-spacing:-.02em}
+.sub{margin:0 0 26px; color:var(--muted)}
+.levels{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:22px}
+.level{
+  font:500 1rem/1.2 var(--head); text-align:left; cursor:pointer;
+  background:var(--card); color:var(--ink); border:2px solid var(--line);
+  border-radius:10px; padding:12px 14px;
+}
+.level small{display:block; margin-top:4px; font:400 .8rem/1.3 var(--body); color:var(--muted)}
+.level[aria-checked="true"]{border-color:var(--accent); box-shadow:4px 4px 0 var(--accent)}
+.card{background:var(--card); border:2px solid var(--line); border-radius:10px; padding:22px; margin-bottom:16px}
+.card h2{font:700 1.1rem/1.2 var(--head); margin:0 0 10px}
+#problem{font-size:1.25rem; min-height:3.2em; white-space:pre-wrap}
+.row{display:flex; flex-wrap:wrap; gap:10px; margin-top:16px}
+button.act{
+  font:500 1rem var(--head); cursor:pointer; border-radius:8px; padding:10px 16px;
+  border:2px solid var(--accent); background:var(--accent); color:var(--accent-ink);
+}
+button.act.ghost{background:transparent; color:var(--accent)}
+button:disabled{opacity:.5; cursor:not-allowed}
+input[type=text]{
+  flex:1 1 200px; font:1.1rem var(--body); padding:10px 12px; color:var(--ink);
+  background:var(--paper); border:2px solid var(--line); border-radius:8px;
+}
+:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
+#feedback{white-space:pre-wrap; min-height:1.6em}
+#feedback.ok{color:var(--good)} #feedback.err{color:var(--bad)}
+.meta{color:var(--muted); font-size:.9rem; margin-top:8px}
+@media (max-width:560px){ .levels{grid-template-columns:1fr} }
+@media (prefers-reduced-motion:no-preference){ .level{transition:box-shadow .15s,border-color .15s} }
+</style>
+</head>
+<body>
+<main>
+  <h1>Quadratic Equations</h1>
+  <p class="sub">Pick a level. The AI writes a problem for it, then gives hints and checks your answer at the same level.</p>
+
+  <div class="levels" role="radiogroup" aria-label="Difficulty level">
+    <button class="level" role="radio" aria-checked="true" data-level="1">Foundation<small>Factoring, small steps, direct hints</small></button>
+    <button class="level" role="radio" aria-checked="false" data-level="2">Standard<small>Discriminant and the formula</small></button>
+    <button class="level" role="radio" aria-checked="false" data-level="3">Advanced<small>Real-world word problem</small></button>
+  </div>
+
+  <section class="card" aria-live="polite">
+    <h2>Problem</h2>
+    <div id="problem">Press “New problem” to start.</div>
+    <div class="row">
+      <button class="act" id="btn-new">New problem</button>
+      <button class="act ghost" id="btn-hint" disabled>Get a hint</button>
+      <button class="act ghost" id="btn-solution" disabled>Show solution</button>
+    </div>
+    <div class="meta" id="hint-count"></div>
+  </section>
+
+  <section class="card">
+    <h2>Your answer</h2>
+    <div class="row" style="margin-top:0">
+      <input type="text" id="answer" placeholder="e.g. x = 2 and x = 3" aria-label="Your answer" disabled>
+      <button class="act" id="btn-check" disabled>Check answer</button>
+    </div>
+  </section>
+
+  <section class="card" aria-live="polite">
+    <h2>Tutor</h2>
+    <div id="feedback">The tutor’s hints and feedback will appear here.</div>
+  </section>
+</main>
+
+<script>
+const state = { level: 1, problem: "", hints: 0, busy: false };
+const $ = (id) => document.getElementById(id);
+const LEVEL_NAMES = { 1: "Foundation", 2: "Standard", 3: "Advanced" };
+
+function setFeedback(text, cls) {
+  const el = $("feedback");
+  el.textContent = text;          // textContent: never inject AI text as HTML
+  el.className = cls || "";
+}
+
+function setBusy(busy) {
+  state.busy = busy;
+  const has = !!state.problem;
+  $("btn-new").disabled = busy;
+  $("btn-hint").disabled = busy || !has;
+  $("btn-solution").disabled = busy || !has;
+  $("btn-check").disabled = busy || !has;
+  $("answer").disabled = busy || !has;
+}
+
+async function askAI(action, extra = {}) {
+  setBusy(true);
+  setFeedback("Thinking…");
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level: state.level, action, problem: state.problem, ...extra })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Request failed");
+    return data.text;
+  } catch (e) {
+    setFeedback("Something went wrong: " + e.message + ". Try again.", "err");
+    return null;
+  } finally {
+    setBusy(false);
+  }
+}
+
+document.querySelectorAll(".level").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".level").forEach((b) => b.setAttribute("aria-checked", "false"));
+    btn.setAttribute("aria-checked", "true");
+    state.level = Number(btn.dataset.level);
+    state.problem = ""; state.hints = 0;
+    $("problem").textContent = LEVEL_NAMES[state.level] + " selected. Press “New problem”.";
+    $("hint-count").textContent = "";
+    $("answer").value = "";
+    setFeedback("The tutor’s hints and feedback will appear here.");
+    setBusy(false);
+  });
+});
+
+$("btn-new").addEventListener("click", async () => {
+  const text = await askAI("generate");
+  if (text === null) return;
+  state.problem = text.trim(); state.hints = 0;
+  $("problem").textContent = state.problem;
+  $("hint-count").textContent = "";
+  $("answer").value = "";
+  setFeedback("Try it first. Ask for a hint when you are stuck.");
+  setBusy(false);
+});
+
+$("btn-hint").addEventListener("click", async () => {
+  state.hints += 1;
+  const text = await askAI("hint", { hintNumber: state.hints });
+  if (text !== null) {
+    setFeedback(text);
+    $("hint-count").textContent = "Hints used: " + state.hints;
+  }
+});
+
+$("btn-check").addEventListener("click", async () => {
+  const answer = $("answer").value.trim();
+  if (!answer) { setFeedback("Type your answer first.", "err"); return; }
+  const text = await askAI("check", { answer });
+  if (text !== null) setFeedback(text, /^correct/i.test(text) ? "ok" : "");
+});
+
+$("answer").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !state.busy) $("btn-check").click();
+});
+
+$("btn-solution").addEventListener("click", async () => {
+  const text = await askAI("solution");
+  if (text !== null) setFeedback(text);
+});
+</script>
+</body>
+</html>
